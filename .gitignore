@@ -3,5 +3,5 @@ build/
 .env
 backend/src/serviceAccountKey.json
 backend/firebase-service-account.json
-*.json
+
 
