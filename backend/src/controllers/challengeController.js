@@ -1,10 +1,10 @@
 import db from "../config/db.js";
 
 /* =======================
-   🧱 CHALLENGES SECTION
+    CHALLENGES SECTION
 ======================= */
 
-// ✅ إنشاء تحدي جديد (للأدمن فقط)
+
 export const createChallenge = async (req, res) => {
   try {
     const { title, description, difficulty, deadline } = req.body;
@@ -22,7 +22,7 @@ export const createChallenge = async (req, res) => {
   }
 };
 
-// ✅ جلب كل التحديات (مع إمكانية فلترة)
+
 export const getAllChallenges = async (req, res) => {
   try {
     const { difficulty } = req.query;
@@ -42,7 +42,7 @@ export const getAllChallenges = async (req, res) => {
   }
 };
 
-// ✅ جلب تحدي محدد بالتفصيل
+
 export const getChallengeById = async (req, res) => {
   try {
     const [rows] = await db.query("SELECT * FROM challenges WHERE id = ?", [req.params.id]);
@@ -53,7 +53,7 @@ export const getChallengeById = async (req, res) => {
   }
 };
 
-// ✅ جلب التحديات الأسبوعية
+
 export const getWeeklyChallenges = async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -67,7 +67,7 @@ export const getWeeklyChallenges = async (req, res) => {
   }
 };
 
-// ✅ تحديث / حذف تحدي (للأدمن فقط)
+
 export const updateChallenge = async (req, res) => {
   try {
     const { title, description, difficulty, deadline } = req.body;
@@ -91,14 +91,14 @@ export const deleteChallenge = async (req, res) => {
 };
 
 /* =======================
-   📤 SUBMISSIONS SECTION
+    SUBMISSIONS SECTION
 ======================= */
 
-// ✅ رفع حل للتحدي
+
 export const submitChallenge = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id; // من التوكن
+    const userId = req.user.id; 
     const htmlFile = req.files?.html?.[0];
     const cssFile = req.files?.css?.[0];
 
@@ -109,7 +109,7 @@ export const submitChallenge = async (req, res) => {
     const htmlPath = htmlFile ? `/uploads/${htmlFile.filename}` : null;
     const cssPath = cssFile ? `/uploads/${cssFile.filename}` : null;
 
-    // حفظ أسماء الملفات لعرضها لاحقًا
+   
     const htmlName = htmlFile ? htmlFile.originalname : null;
     const cssName = cssFile ? cssFile.originalname : null;
 
@@ -132,7 +132,7 @@ export const submitChallenge = async (req, res) => {
 export const getSubmissionsForChallenge = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id; // 🔒 المستخدم الحالي من التوكن
+    const userId = req.user.id; 
 
     const [rows] = await db.query(
       `
@@ -164,7 +164,7 @@ export const getSubmissionsForChallenge = async (req, res) => {
 
 
 
-// ✅ جلب الحلول الخاصة بالمستخدم
+
 export const getMySubmissions = async (req, res) => {
   try {
     const user_id = req.user.id;
@@ -181,7 +181,7 @@ export const getMySubmissions = async (req, res) => {
   }
 };
 
-// ✅ تقييم الحل (AI أو أدمن)
+
 export const evaluateSubmission = async (req, res) => {
   try {
     const { score, feedback } = req.body;
@@ -196,7 +196,7 @@ export const evaluateSubmission = async (req, res) => {
   }
 };
 
-// ✅ أفضل 3 حلول
+
 export const getTopSubmissions = async (req, res) => {
   try {
     const [rows] = await db.query(
