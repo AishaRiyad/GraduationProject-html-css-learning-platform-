@@ -1,5 +1,6 @@
 import db from "../config/db.js";  
 
+//
 export async function saveToken(req, res) {
   try {
     const { user_id, token } = req.body;
