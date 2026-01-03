@@ -155,9 +155,7 @@ export const login = async (req, res) => {
       }
     }
 
-    // ✅ نرجّع user بحيث:
-    // id / email / role / level → من جدول users
-    // full_name / profile_image / last_login → من profile لو موجود
+   
     return res.json({
       token,
       user: {
