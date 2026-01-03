@@ -9,7 +9,7 @@ export const createAdmin = async (req, res) => {
       return res.status(400).json({ message: "All fields are required." });
     }
 
-    // هل الإيميل مستخدم سابقًا؟
+    
     const [existing] = await db.query(
       "SELECT id FROM users WHERE email = ? LIMIT 1",
       [email]
@@ -19,10 +19,10 @@ export const createAdmin = async (req, res) => {
       return res.status(400).json({ message: "Email already exists." });
     }
 
-    // تشفير كلمة السر
+  
     const hashed = await bcrypt.hash(password, 10);
 
-    // إضافة الأدمن
+    
     const [result] = await db.query(
       `INSERT INTO users (name, email, password, role, password_length, level)
        VALUES (?, ?, ?, 'admin', ?, 'basic')`,
