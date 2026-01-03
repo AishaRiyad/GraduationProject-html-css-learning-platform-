@@ -50,7 +50,7 @@ const [lessonStats] = await db.query(
         ? Math.round((completedLessons / totalLessons) * 100)
         : 0;
 
-    // آخر Quiz Score
+
     const [quizScore] = await db.query(
       `SELECT JSON_EXTRACT(scores, '$[last]') AS last_score
        FROM quiz_progress
