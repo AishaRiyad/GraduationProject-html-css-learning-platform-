@@ -58,7 +58,8 @@ export async function getThreadWithUser(req, res) {
 
     const [rows] = await db.query(
       `
-      SELECT id, sender_id, receiver_id, body, is_read, created_at
+      SELECT id, sender_id, receiver_id, body, is_read, created_at,
+             message_type, file_url, file_name, file_mime, file_size
       FROM chat_messages
       WHERE (sender_id=? AND receiver_id=?)
          OR (sender_id=? AND receiver_id=?)
@@ -82,28 +83,47 @@ export async function sendMessageToUser(req, res) {
     const myRole = req.user.role;
 
     const otherId = Number(req.params.userId);
-    const { body } = req.body;
+    const body = String(req.body?.body || "").trim();
+    const file = req.file || null;
 
-    if (!otherId || !body?.trim()) {
+    if (!otherId) return res.status(400).json({ message: "Invalid message" });
+    if (!body && !file)
       return res.status(400).json({ message: "Invalid message" });
+
+    let messageType = "text";
+    let fileUrl = null;
+    let fileName = null;
+    let fileMime = null;
+    let fileSize = null;
+
+    if (file) {
+      fileUrl = `/uploads/chat/${file.filename}`;
+      fileName = file.originalname;
+      fileMime = file.mimetype;
+      fileSize = file.size;
+
+      if (String(file.mimetype || "").startsWith("image/")) messageType = "image";
+      else if (String(file.mimetype || "").startsWith("audio/")) messageType = "audio";
+      else messageType = "file";
     }
 
-    const text = body.trim();
-
     const [insertResult] = await db.execute(
-      "INSERT INTO chat_messages (sender_id, receiver_id, body) VALUES (?,?,?)",
-      [myId, otherId, text]
+      `INSERT INTO chat_messages (sender_id, receiver_id, body, message_type, file_url, file_name, file_mime, file_size)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [myId, otherId, body || null, messageType, fileUrl, fileName, fileMime, fileSize]
     );
 
-    const [[msg]] = await db.query("SELECT * FROM chat_messages WHERE id=?", [
-      insertResult.insertId,
-    ]);
+    const [[msg]] = await db.query(
+      `SELECT id, sender_id, receiver_id, body, is_read, created_at,
+              message_type, file_url, file_name, file_mime, file_size
+       FROM chat_messages WHERE id=?`,
+      [insertResult.insertId]
+    );
 
     const io = getIO();
     io.to(`user:${otherId}`).emit("chat:newMessage", msg);
     io.to(`user:${myId}`).emit("chat:newMessage", msg);
 
-    // ✅ NEW: notify only when Admin -> Supervisor
     const [[receiver]] = await db.query(
       "SELECT role FROM users WHERE id=? LIMIT 1",
       [otherId]
@@ -122,9 +142,18 @@ export async function sendMessageToUser(req, res) {
         route: "chat",
       });
 
+      const notifPreview =
+        messageType === "text"
+          ? body
+          : messageType === "image"
+          ? "Sent an image"
+          : messageType === "audio"
+          ? "Sent a voice message"
+          : "Sent a file";
+
       const [notifInsert] = await db.execute(
         "INSERT INTO notifications (user_id, type, message, is_read, data) VALUES (?, ?, ?, 0, ?)",
-        [otherId, "chat", `New message from ${senderName}`, data]
+        [otherId, "chat", `New message from ${senderName}: ${String(notifPreview).slice(0, 120)}`, data]
       );
 
       const [[notif]] = await db.query(
@@ -138,7 +167,7 @@ export async function sendMessageToUser(req, res) {
         await sendPushNotificationToUser(
           otherId,
           "New Message",
-          `${senderName}: ${text}`.slice(0, 120),
+          `${senderName}: ${String(notifPreview).slice(0, 120)}`,
           { type: "chat", partnerId: myId }
         );
       } catch {}
@@ -176,7 +205,9 @@ export async function updateMessage(req, res) {
     ]);
 
     const [[updated]] = await db.query(
-      "SELECT * FROM chat_messages WHERE id=?",
+      `SELECT id, sender_id, receiver_id, body, is_read, created_at,
+              message_type, file_url, file_name, file_mime, file_size
+       FROM chat_messages WHERE id=?`,
       [messageId]
     );
     res.json(updated);
