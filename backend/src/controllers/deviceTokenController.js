@@ -1,4 +1,4 @@
-import db from "../config/db.js";  // ← لاحظي المسار الصحيح
+import db from "../config/db.js";  
 
 export async function saveToken(req, res) {
   try {
