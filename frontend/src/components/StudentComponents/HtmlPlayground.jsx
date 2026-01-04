@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import AIHelpDrawer from "./AIHelpDrawer.jsx"; 
+import AIHelpDrawer from "./AIHelpDrawer.jsx";
 
 /* HTML validator (light) */
 const validateHtml = (source) => {
@@ -52,6 +52,88 @@ const lsGet = (key, fallback) => { try { const v = localStorage.getItem(key); re
 const lsSet = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
 const newId = () => String(Date.now());
 
+const HTML_TAGS = [
+  "a","abbr","address","area","article","aside","audio","b","base","bdi","bdo","blockquote","body","br","button",
+  "canvas","caption","cite","code","col","colgroup","data","datalist","dd","del","details","dfn","dialog","div","dl","dt",
+  "em","embed","fieldset","figcaption","figure","footer","form","h1","h2","h3","h4","h5","h6","head","header","hr","html",
+  "i","iframe","img","input","ins","kbd","label","legend","li","link","main","map","mark","meta","meter","nav","noscript",
+  "object","ol","optgroup","option","output","p","param","picture","pre","progress","q","rp","rt","ruby","s","samp","script",
+  "section","select","small","source","span","strong","style","sub","summary","sup","table","tbody","td","template","textarea",
+  "tfoot","th","thead","time","title","tr","track","u","ul","var","video","wbr"
+];
+
+const HTML_ATTRS = [
+  "class","id","style","title","href","src","alt","rel","target","type","name","value","placeholder","disabled","checked","selected",
+  "readonly","required","min","max","step","for","aria-label","aria-hidden","role","data-"
+];
+
+const CSS_PROPS = [
+  "display","position","top","right","bottom","left","z-index","width","height","max-width","min-width","max-height","min-height",
+  "margin","margin-top","margin-right","margin-bottom","margin-left","padding","padding-top","padding-right","padding-bottom","padding-left",
+  "border","border-radius","border-color","border-width","border-style","outline","box-shadow",
+  "background","background-color","background-image","background-size","background-position","background-repeat",
+  "color","opacity","font","font-size","font-weight","font-family","line-height","letter-spacing","text-align","text-decoration","text-transform",
+  "overflow","overflow-x","overflow-y","white-space","gap","row-gap","column-gap","flex","flex-direction","flex-wrap","justify-content","align-items","align-content",
+  "grid","grid-template-columns","grid-template-rows","grid-column","grid-row","place-items",
+  "transform","transition","animation","cursor","pointer-events","user-select"
+];
+
+const uniq = (arr) => Array.from(new Set(arr));
+
+function getLastOpenTagName(html, caret) {
+  const upto = html.slice(0, caret);
+  const tagRe = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(?=[\s>\/])/g;
+  const voids = new Set(["area","base","br","col","embed","hr","img","input","link","meta","param","source","track","wbr"]);
+  const stack = [];
+  let m;
+  while ((m = tagRe.exec(upto))) {
+    const full = m[0];
+    const name = (m[1] || "").toLowerCase();
+    const isClose = full.startsWith("</");
+    if (voids.has(name)) continue;
+    if (!isClose) stack.push(name);
+    else {
+      const idx = stack.lastIndexOf(name);
+      if (idx !== -1) stack.splice(idx, 1);
+    }
+  }
+  return stack.length ? stack[stack.length - 1] : "";
+}
+
+function extractHtmlContext(text, caret) {
+  const upto = text.slice(0, caret);
+  const lastLt = upto.lastIndexOf("<");
+  const lastGt = upto.lastIndexOf(">");
+  if (lastLt === -1 || lastLt < lastGt) return null;
+  const frag = upto.slice(lastLt);
+  const closeMode = frag.startsWith("</");
+  const after = closeMode ? frag.slice(2) : frag.slice(1);
+  const spaceIdx = after.search(/[\s/>]/);
+  const tagPart = spaceIdx === -1 ? after : after.slice(0, spaceIdx);
+  const inTagName = spaceIdx === -1;
+  const attrPart = spaceIdx === -1 ? "" : after.slice(spaceIdx + 1);
+  const attrMatch = attrPart.match(/([a-zA-Z_:][-a-zA-Z0-9_:.]*)$/);
+  const attrPrefix = attrMatch ? attrMatch[1] : "";
+  return { lastLt, closeMode, tagPrefix: tagPart, inTagName, attrPrefix };
+}
+
+function extractCssContext(text, caret) {
+  const upto = text.slice(0, caret);
+  const lastSemi = upto.lastIndexOf(";");
+  const lastBrace = upto.lastIndexOf("{");
+  const start = Math.max(lastSemi, lastBrace) + 1;
+  const line = upto.slice(start);
+  const inComment = /\/\*[^]*$/.test(upto) && !/\*\//.test(upto.slice(upto.lastIndexOf("/*")));
+  if (inComment) return null;
+  const hasColon = line.includes(":");
+  if (hasColon) return null;
+  const m = line.match(/([a-zA-Z-]+)$/);
+  const prefix = m ? m[1] : "";
+  const inRule = lastBrace !== -1 && (lastBrace > upto.lastIndexOf("}"));
+  if (!inRule) return null;
+  return { prefix };
+}
+
 export default function HtmlPlayground() {
   const [ns, setNs] = useState(readNs());
   useEffect(() => {
@@ -84,6 +166,12 @@ export default function HtmlPlayground() {
   const [showProjects, setShowProjects] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  const textareaRef = useRef(null);
+  const [acOpen, setAcOpen] = useState(false);
+  const [acItems, setAcItems] = useState([]);
+  const [acIndex, setAcIndex] = useState(0);
+  const [acMeta, setAcMeta] = useState({ start: 0, end: 0, kind: "" });
+
   useEffect(() => {
     const newHtml = localStorage.getItem(k("tryit_html", ns)) || DEFAULT_HTML;
     const newCss  = localStorage.getItem(k("tryit_css", ns)) || DEFAULT_CSS;
@@ -92,6 +180,7 @@ export default function HtmlPlayground() {
     setPreviewHtml(newHtml);
     setProjects(lsGet(k("tryit_projects", ns), []));
     setCurrentId(localStorage.getItem(k("tryit_currentId", ns)) || "");
+    setAcOpen(false);
   }, [ns]);
 
   const saveProject = (forceNew = false) => {
@@ -122,6 +211,7 @@ export default function HtmlPlayground() {
     localStorage.setItem(k("tryit_html", ns), DEFAULT_HTML);
     localStorage.setItem(k("tryit_css", ns), DEFAULT_CSS);
     setShowProjects(false);
+    setAcOpen(false);
   };
 
   const loadProject = (id) => {
@@ -130,6 +220,7 @@ export default function HtmlPlayground() {
     setCss(p.css || DEFAULT_CSS);
     setCurrentId(id); localStorage.setItem(k("tryit_currentId", ns), id);
     setShowProjects(false);
+    setAcOpen(false);
   };
 
   const deleteProject = (id) => {
@@ -226,6 +317,142 @@ export default function HtmlPlayground() {
   const editorH  = vertical ? "min(70vh, calc(100vh - 6rem))"  : `${Math.round(stackRatio * 100)}vh`;
   const previewH = fs ? "calc(100vh - 7.5rem)" : (vertical ? "min(75vh, calc(100vh - 7.5rem))" : `${Math.round((1 - stackRatio) * 100)}vh`);
 
+  const closeAutocomplete = () => {
+    setAcOpen(false);
+    setAcItems([]);
+    setAcIndex(0);
+    setAcMeta({ start: 0, end: 0, kind: "" });
+  };
+
+  const openAutocomplete = (items, meta) => {
+    const list = uniq(items).slice(0, 8);
+    if (!list.length) return closeAutocomplete();
+    setAcItems(list);
+    setAcIndex(0);
+    setAcMeta(meta);
+    setAcOpen(true);
+  };
+
+  const updateAutocomplete = (text, caret, lang) => {
+    if (!textareaRef.current) return closeAutocomplete();
+    if (lang === "html") {
+      const ctx = extractHtmlContext(text, caret);
+      if (!ctx) return closeAutocomplete();
+
+      if (ctx.closeMode && ctx.inTagName) {
+        const want = ctx.tagPrefix.toLowerCase();
+        const last = getLastOpenTagName(text, caret);
+        const base = last ? [last] : [];
+        const cand = base.concat(HTML_TAGS);
+        const items = cand
+          .filter(t => t.startsWith(want))
+          .slice(0, 8)
+          .map(t => t);
+        return openAutocomplete(items, { start: ctx.lastLt + 2, end: caret, kind: "tag" });
+      }
+
+      if (ctx.inTagName) {
+        const want = ctx.tagPrefix.toLowerCase();
+        const items = HTML_TAGS.filter(t => t.startsWith(want)).slice(0, 8);
+        return openAutocomplete(items, { start: ctx.lastLt + 1, end: caret, kind: "tag" });
+      }
+
+      const wantAttr = (ctx.attrPrefix || "").toLowerCase();
+      if (!wantAttr) return closeAutocomplete();
+      const items = HTML_ATTRS.filter(a => a.toLowerCase().startsWith(wantAttr)).slice(0, 8);
+      return openAutocomplete(items, { start: caret - wantAttr.length, end: caret, kind: "attr" });
+    }
+
+    if (lang === "css") {
+      const ctx = extractCssContext(text, caret);
+      if (!ctx) return closeAutocomplete();
+      const want = (ctx.prefix || "").toLowerCase();
+      if (!want) return closeAutocomplete();
+      const items = CSS_PROPS.filter(p => p.toLowerCase().startsWith(want)).slice(0, 8);
+      return openAutocomplete(items, { start: caret - want.length, end: caret, kind: "css" });
+    }
+
+    closeAutocomplete();
+  };
+
+  const acceptAutocomplete = (pick) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const text = editorLang === "html" ? html : css;
+    const before = text.slice(0, acMeta.start);
+    const after = text.slice(acMeta.end);
+
+    let insert = pick;
+    if (acMeta.kind === "attr") {
+      if (pick === "class") insert = 'class=""';
+      else if (pick === "id") insert = 'id=""';
+      else if (pick === "href") insert = 'href=""';
+      else if (pick === "src") insert = 'src=""';
+      else if (pick === "alt") insert = 'alt=""';
+      else if (pick === "title") insert = 'title=""';
+      else if (pick === "name") insert = 'name=""';
+      else if (pick === "placeholder") insert = 'placeholder=""';
+      else if (pick === "type") insert = 'type=""';
+      else if (pick === "value") insert = 'value=""';
+      else if (pick.startsWith("aria-")) insert = `${pick}=""`;
+      else if (pick === "data-") insert = 'data-=""';
+    } else if (acMeta.kind === "css") {
+      insert = `${pick}: `;
+    }
+
+    const nextText = before + insert + after;
+
+    if (editorLang === "html") setHtml(nextText);
+    else setCss(nextText);
+
+    requestAnimationFrame(() => {
+      const pos = before.length + insert.length;
+      el.focus();
+      if (acMeta.kind === "attr" && insert.includes('=""')) {
+        const q = before.length + insert.indexOf('""') + 1;
+        el.setSelectionRange(q, q);
+      } else {
+        el.setSelectionRange(pos, pos);
+      }
+    });
+
+    closeAutocomplete();
+  };
+
+  const onEditorChange = (e) => {
+    const v = e.target.value;
+    if (editorLang === "html") setHtml(v);
+    else setCss(v);
+    const caret = e.target.selectionStart ?? v.length;
+    updateAutocomplete(v, caret, editorLang);
+  };
+
+  const onEditorKeyDown = (e) => {
+    if (!acOpen) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setAcIndex(i => Math.min(acItems.length - 1, i + 1));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setAcIndex(i => Math.max(0, i - 1));
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeAutocomplete();
+      return;
+    }
+    if (e.key === "Tab" || e.key === "Enter") {
+      e.preventDefault();
+      const pick = acItems[acIndex];
+      if (pick) acceptAutocomplete(pick);
+      return;
+    }
+  };
+
   return (
     <div className="min-h-screen text-slate-900 dark:text-slate-100 relative">
       <style>{`
@@ -286,7 +513,7 @@ export default function HtmlPlayground() {
             {["html", "css"].map((lang) => (
               <button
                 key={lang}
-                onClick={() => setEditorLang(lang)}
+                onClick={() => { setEditorLang(lang); closeAutocomplete(); }}
                 className={`px-3 py-1 text-xs font-semibold transition ${
                   editorLang === lang
                     ? "bg-gradient-to-r from-pink-500 to-amber-500 text-white"
@@ -415,7 +642,7 @@ export default function HtmlPlayground() {
               {["html","css"].map((lang)=>(
                 <button
                   key={lang}
-                  onClick={()=>setEditorLang(lang)}
+                  onClick={()=>{ setEditorLang(lang); closeAutocomplete(); }}
                   className={`px-3 py-1 text-xs font-semibold transition w-full ${
                     editorLang===lang
                       ? "bg-gradient-to-r from-pink-500 to-amber-500 text-white"
@@ -474,19 +701,70 @@ export default function HtmlPlayground() {
             <div className="px-4 py-2 text-xs font-medium text-slate-700 bg-yellow-100 border-b border-yellow-200">
               {editorLang.toUpperCase()}
             </div>
-            <textarea
-              value={editorLang === "html" ? html : css}
-              onChange={(e) => editorLang === "html" ? setHtml(e.target.value) : setCss(e.target.value)}
-              spellCheck={false}
-              className={[
-                "w-full p-4 outline-none resize-none font-mono border transition-colors duration-300",
-                "max-h-[75vh] md:max-h-none",
-                dark ? "bg-slate-900 text-amber-100 border-slate-700" : "bg-white text-slate-900 border-yellow-200",
-                wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
-              ].join(" ")}
-              style={{ height: editorH, fontSize: `clamp(12px, ${fontSize}px, 18px)`, lineHeight: "1.4" }}
-              placeholder={editorLang === "html" ? "Write HTML here…" : "Write CSS here…"}
-            />
+
+            <div className="relative">
+              <textarea
+                ref={textareaRef}
+                value={editorLang === "html" ? html : css}
+                onChange={onEditorChange}
+                onKeyDown={onEditorKeyDown}
+                onBlur={() => setTimeout(() => closeAutocomplete(), 120)}
+                onClick={(e) => {
+                  const v = e.target.value;
+                  const caret = e.target.selectionStart ?? v.length;
+                  updateAutocomplete(v, caret, editorLang);
+                }}
+                onKeyUp={(e) => {
+                  const el = e.target;
+                  const v = el.value;
+                  const caret = el.selectionStart ?? v.length;
+                  if (!["ArrowUp","ArrowDown","Enter","Tab","Escape"].includes(e.key)) updateAutocomplete(v, caret, editorLang);
+                }}
+                spellCheck={false}
+                className={[
+                  "w-full p-4 outline-none resize-none font-mono border transition-colors duration-300",
+                  "max-h-[75vh] md:max-h-none",
+                  dark ? "bg-slate-900 text-amber-100 border-slate-700" : "bg-white text-slate-900 border-yellow-200",
+                  wrap ? "whitespace-pre-wrap break-words" : "whitespace-pre",
+                ].join(" ")}
+                style={{ height: editorH, fontSize: `clamp(12px, ${fontSize}px, 18px)`, lineHeight: "1.4" }}
+                placeholder={editorLang === "html" ? "Write HTML here…" : "Write CSS here…"}
+              />
+
+              {acOpen && acItems.length > 0 && (
+                <div
+                  className={[
+                    "absolute left-4 top-3 z-30 rounded-lg border shadow-lg overflow-hidden",
+                    dark ? "bg-slate-800 border-slate-700" : "bg-white border-yellow-200",
+                  ].join(" ")}
+                >
+                  <div className={["px-3 py-1 text-[10px] uppercase tracking-wide", dark ? "text-slate-300 bg-slate-900/30" : "text-slate-500 bg-yellow-50"].join(" ")}>
+                    {editorLang === "html" ? "suggestions" : "css"}
+                  </div>
+                  <ul className="max-h-56 overflow-auto">
+                    {acItems.map((it, idx) => (
+                      <li key={it + idx}>
+                        <button
+                          type="button"
+                          onMouseDown={(ev) => { ev.preventDefault(); acceptAutocomplete(it); }}
+                          className={[
+                            "w-full text-left px-3 py-2 text-xs font-medium transition",
+                            idx === acIndex
+                              ? (dark ? "bg-amber-500/20 text-amber-200" : "bg-amber-50 text-amber-800")
+                              : (dark ? "text-slate-100 hover:bg-slate-700/50" : "text-slate-800 hover:bg-yellow-50"),
+                          ].join(" ")}
+                        >
+                          <span className="font-mono">{it}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className={["px-3 py-1 text-[10px]", dark ? "text-slate-400 bg-slate-900/30" : "text-slate-500 bg-yellow-50"].join(" ")}>
+                    Tab / Enter
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
