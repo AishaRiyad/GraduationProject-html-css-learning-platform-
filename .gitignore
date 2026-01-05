@@ -1,7 +1,23 @@
+# dependencies
 node_modules/
-build/
+
+# env
 .env
-backend/src/serviceAccountKey.json
-backend/firebase-service-account.json
+*.env
 
+# expo / react native
+.expo/
+mobile/.expo/
+*.jks
+*.keystore
 
+# uploads / generated
+backend/uploads/
+backend/src/data/
+
+# logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
